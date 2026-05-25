@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Optional, Sequence
 
 from iphone_backup_decrypt import EncryptedBackup
+import click
+from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
@@ -51,6 +53,29 @@ def _read_plist(path: pathlib.Path) -> dict:
     """Read a plist file if it exists, returning an empty dict on failure."""
     if not path.exists():
         return {}
+
+
+def find_backup_dirs(backup_path: str) -> str:
+    """Return the selected backup directory under a MobileSync backup root."""
+    backup_root = pathlib.Path(backup_path)
+    candidates = [
+        path for path in backup_root.iterdir() if path.is_dir() and (path / "Manifest.db").exists()
+    ] if backup_root.exists() else []
+
+    if not candidates:
+        raise BackupError(f"No valid iPhone backup found in {backup_path}")
+    if len(candidates) == 1:
+        return str(candidates[0])
+
+    table = Table(title="Available iPhone backups")
+    table.add_column("No.", style="bold")
+    table.add_column("Path")
+    for index, path in enumerate(candidates, start=1):
+        table.add_row(str(index), str(path))
+
+    Console().print(table)
+    choice = click.prompt("Select backup", type=click.IntRange(1, len(candidates)))
+    return str(candidates[choice - 1])
     try:
         with path.open("rb") as handle:
             return plistlib.load(handle)
@@ -64,7 +89,7 @@ def is_encrypted_backup(backup_path: str) -> bool:
 
     manifest_plist = pathlib.Path(backup_path) / "Manifest.plist"
     plist_data = _read_plist(manifest_plist)
-    return bool(plist_data.get("WasPasscodeSet"))
+    return bool(plist_data.get("IsEncrypted"))
 
 
 def _backup_size_bytes(backup_path: str) -> int:

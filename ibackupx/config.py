@@ -56,16 +56,16 @@ def _ensure_writable(path: pathlib.Path) -> None:
     """Raise ConfigError if a path is not writable or cannot be created."""
     if path.exists():
         if not path.is_dir():
-            raise ConfigError(f"destination is not a directory: {path}")
+            raise ValueError(f"destination is not a directory: {path}")
         if not os.access(path, os.W_OK):
-            raise ConfigError(f"destination is not writable: {path}")
+            raise ValueError(f"destination is not writable: {path}")
         return
 
     parent = _nearest_existing_parent(path)
     if parent is None or not parent.is_dir():
-        raise ConfigError(f"destination parent does not exist: {path}")
+        raise ValueError(f"destination parent does not exist: {path}")
     if not os.access(parent, os.W_OK):
-        raise ConfigError(f"destination is not writable: {path}")
+        raise ValueError(f"destination is not writable: {path}")
 
 
 class ConfigModel(BaseModel):
@@ -92,13 +92,13 @@ class ConfigModel(BaseModel):
         if not self.backup_path:
             self.backup_path = default_backup_path()
         if not self.backup_path:
-            raise ConfigError("No standard backup path exists on Linux. Set backup_path in config.json.")
+            raise ValueError("No standard backup path exists on Linux. Set backup_path in config.json.")
         if not self.destination:
             self.destination = default_destination()
 
         backup_path = pathlib.Path(self.backup_path).expanduser()
         if not backup_path.exists():
-            raise ConfigError(f"backup_path does not exist: {backup_path}")
+            raise ValueError(f"backup_path does not exist: {backup_path}")
 
         destination_path = pathlib.Path(self.destination).expanduser()
         _ensure_writable(destination_path)
@@ -138,8 +138,8 @@ def apply_overrides(config: Config, overrides: Dict[str, Any]) -> Config:
     """Apply CLI overrides and re-validate using the pydantic model."""
 
     data = {
-        "backup_path": overrides.get("backup_path", config.backup_path),
-        "destination": overrides.get("destination", config.destination),
+        "backup_path": overrides.get("backup_path") or config.backup_path,
+        "destination": overrides.get("destination") or config.destination,
         "organize_by_date": overrides.get("organize_by_date", config.organize_by_date),
         "skip_existing": overrides.get("skip_existing", config.skip_existing),
     }

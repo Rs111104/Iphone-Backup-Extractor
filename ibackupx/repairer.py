@@ -23,6 +23,15 @@ register_heif_opener()
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".png", ".gif"}
 
+_FORMAT_FROM_SUFFIX = {
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".png": "PNG",
+    ".gif": "GIF",
+    ".heic": "HEIF",
+    ".heif": "HEIF",
+}
+
 
 @dataclass
 class RepairSummary:
@@ -36,7 +45,9 @@ class RepairSummary:
 
 def _iter_images(destination: pathlib.Path) -> Iterable[pathlib.Path]:
     """Yield all supported image files under a destination folder."""
-    for root, _, files in os.walk(destination):
+    quarantine_path = destination / "quarantine"
+    for root, dirs, files in os.walk(destination):
+        dirs[:] = [d for d in dirs if pathlib.Path(root) / d != quarantine_path]
         for name in files:
             if pathlib.Path(name).suffix.lower() in IMAGE_EXTENSIONS:
                 yield pathlib.Path(root) / name
@@ -56,12 +67,13 @@ def _resave_image(path: pathlib.Path, *, dry_run: bool) -> bool:
     """Attempt to resave an image without metadata."""
     try:
         with Image.open(path) as image:
+            fmt = _FORMAT_FROM_SUFFIX.get(path.suffix.lower()) or image.format
             if dry_run:
                 buffer = io.BytesIO()
-                image.save(buffer, format=image.format)
+                image.save(buffer, format=fmt)
                 return True
             temp_path = path.with_suffix(path.suffix + ".tmp")
-            image.save(temp_path, format=image.format)
+            image.save(temp_path, format=fmt)
         shutil.move(str(temp_path), str(path))
         return True
     except (OSError, UnidentifiedImageError, ValueError):
@@ -73,12 +85,13 @@ def _rewrite_exif(path: pathlib.Path, *, dry_run: bool) -> bool:
     try:
         exif_bytes = piexif.dump({})
         with Image.open(path) as image:
+            fmt = _FORMAT_FROM_SUFFIX.get(path.suffix.lower()) or image.format
             if dry_run:
                 buffer = io.BytesIO()
-                image.save(buffer, format=image.format, exif=exif_bytes)
+                image.save(buffer, format=fmt, exif=exif_bytes)
                 return True
             temp_path = path.with_suffix(path.suffix + ".tmp")
-            image.save(temp_path, format=image.format, exif=exif_bytes)
+            image.save(temp_path, format=fmt, exif=exif_bytes)
         shutil.move(str(temp_path), str(path))
         return True
     except (OSError, UnidentifiedImageError, ValueError, piexif.InvalidImageDataError):

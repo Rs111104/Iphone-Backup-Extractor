@@ -10,8 +10,6 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 
 import imagehash
-import piexif
-from dateutil import parser
 from pillow_heif import register_heif_opener
 from PIL import Image, UnidentifiedImageError
 from rich.table import Table
@@ -48,16 +46,12 @@ class DuplicateSummary:
 def _exif_datetime(path: pathlib.Path) -> Optional[datetime]:
     """Extract the EXIF timestamp from an image if present."""
     try:
-        exif_data = piexif.load(str(path))
-        exif_tag = exif_data.get("Exif", {})
-        date_original = exif_tag.get(piexif.ExifIFD.DateTimeOriginal)
-        date_general = exif_data.get("0th", {}).get(piexif.ImageIFD.DateTime)
-        date_value = date_original or date_general
-        if date_value:
-            if isinstance(date_value, bytes):
-                date_value = date_value.decode("utf-8", errors="ignore")
-            return parser.parse(str(date_value))
-    except (OSError, ValueError, piexif.InvalidImageDataError):
+        with Image.open(path) as image:
+            exif = image.getexif()
+            raw = exif.get(36867) or exif.get(306)
+            if raw:
+                return datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")
+    except (OSError, UnidentifiedImageError, ValueError):
         return None
     return None
 

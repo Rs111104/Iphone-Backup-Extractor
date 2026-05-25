@@ -5,8 +5,8 @@ Extract photos and videos from local iTunes/Finder iPhone backups, organize by d
 ## Installation
 
 ```bash
-git clone https://github.com/OWNER/ibackupx.git
-cd ibackupx
+git clone https://github.com/Rs111104/Iphone-Backup-Extractor.git
+cd Iphone-Backup-Extractor
 pip install -r requirements.txt
 ```
 
@@ -20,12 +20,14 @@ copy config.example.json config.json
 
 ```json
 {
-  "backup_path": "C:\\path\\to\\iPhone\\Backup",
-  "destination": "D:\\ExtractedPhotos",
+  "backup_path": "",
+  "destination": "",
   "organize_by_date": true,
   "skip_existing": true
 }
 ```
+
+Leave blank to use platform defaults (auto-detected on Windows and macOS).
 
 - **backup_path**: Path to the iPhone backup. If empty, the tool uses the platform default.
 - **destination**: Output folder for extracted files.

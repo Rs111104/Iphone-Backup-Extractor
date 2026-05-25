@@ -27,7 +27,9 @@ def setup_logging(destination: str, *, verbose: bool, enable_file: bool) -> logg
     logger.addHandler(console_handler)
 
     if enable_file:
-        log_path = pathlib.Path(destination) / "ibackupx.log"
+        log_dir = pathlib.Path(destination)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "ibackupx.log"
         file_handler = logging.FileHandler(log_path, encoding="utf-8")
         file_handler.setLevel(level)
         file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))

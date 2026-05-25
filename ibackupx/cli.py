@@ -14,7 +14,7 @@ from ibackupx import BackupError, ConfigError, ExtractionError, __version__
 from ibackupx.config import apply_overrides, load_config
 from ibackupx.deduplicator import build_duplicates_table, find_duplicates, remove_duplicates
 from ibackupx.extractor import ExtractionSummary, extract_media_files
-from ibackupx.inspector import inspect_backup, is_encrypted_backup, render_backup_info
+from ibackupx.inspector import find_backup_dirs, inspect_backup, is_encrypted_backup, render_backup_info
 from ibackupx.logger import setup_logging
 from ibackupx.repairer import RepairSummary, repair_files
 
@@ -107,6 +107,7 @@ def main(
                 "destination": destination,
             },
         )
+        config.backup_path = find_backup_dirs(config.backup_path)
     except (ConfigError, BackupError) as exc:
         raise click.ClickException(str(exc)) from exc
 

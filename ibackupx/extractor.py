@@ -126,9 +126,9 @@ def _query_manifest(
     params = [f"%{ext}" for ext in extensions]
     sql = (
         "SELECT fileID, domain, relativePath, file "
-        "FROM Files WHERE flags=1 AND (domain LIKE ? OR (" + ext_sql + "))"
+        "FROM Files WHERE flags=1 AND domain LIKE 'CameraRollDomain%' AND (" + ext_sql + ")"
     )
-    return conn.execute(sql, ["CameraRollDomain%", *params]).fetchall()
+    return conn.execute(sql, params).fetchall()
 
 
 def _source_path(backup_path: str, file_id: str) -> pathlib.Path:
@@ -150,8 +150,6 @@ def extract_media_files(
     encrypted = is_encrypted_backup(backup_path)
     if encrypted and not passphrase:
         raise ExtractionError("Encrypted backup requires a passphrase.")
-    if passphrase is not None and not passphrase:
-        raise ExtractionError("Empty passphrase is not allowed.")
 
     rows: list[sqlite3.Row]
     if encrypted:
@@ -165,6 +163,13 @@ def extract_media_files(
                 rows = _query_manifest(conn, extensions=MEDIA_EXTENSIONS)
         except sqlite3.Error as exc:
             raise ExtractionError("Unable to read Manifest.db") from exc
+
+    if not rows:
+        logger.warning(
+            "No media files found in Manifest.db. If you expected photos, verify the backup at %s "
+            "is complete and not from iOS 8 or earlier.",
+            backup_path,
+        )
 
     total_found = len(rows)
     total_extracted = 0
