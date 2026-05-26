@@ -1,0 +1,7 @@
+{
+  "backup_path": "tests\\fixtures\\demo_backup",
+  "destination": "tests\\fixtures\\demo_out",
+  "organize_by_date": true,
+  "skip_existing": true,
+  "hash_size": 8
+}
