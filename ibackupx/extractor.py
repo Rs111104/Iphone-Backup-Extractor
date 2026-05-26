@@ -1,32 +1,23 @@
 """Photo and video extraction engine."""
 
-from __future__ import annotations
-
 import logging
 import pathlib
 import plistlib
-import shutil
 import sqlite3
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Optional, Sequence
 
 from iphone_backup_decrypt import EncryptedBackup
-from pillow_heif import register_heif_opener
-from PIL import Image, UnidentifiedImageError
-from rich.progress import (BarColumn, MofNCompleteColumn, Progress, TextColumn,
-                           TimeRemainingColumn)
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeRemainingColumn
 
 from ibackupx import ExtractionError
 from ibackupx.config import Config
+from ibackupx.constants import MEDIA_EXTENSIONS
 from ibackupx.inspector import is_encrypted_backup
+from ibackupx.utils import exif_datetime, safe_copy_file, safe_replace_file
 
 logger = logging.getLogger(__name__)
-
-register_heif_opener()
-
-MEDIA_EXTENSIONS = [".jpg", ".jpeg", ".heic", ".png", ".gif", ".mov", ".mp4", ".aae"]
 
 
 @dataclass
@@ -39,7 +30,7 @@ class ExtractionSummary:
     total_failed: int
 
 
-def _extract_last_modified(file_blob: Optional[bytes]) -> Optional[int]:
+def _extract_last_modified(file_blob: bytes | None) -> int | None:
     """Extract last-modified timestamp from a Manifest.db file blob."""
     if not file_blob:
         return None
@@ -50,31 +41,7 @@ def _extract_last_modified(file_blob: Optional[bytes]) -> Optional[int]:
     return plist_data.get("LastModified") or plist_data.get("lastModified")
 
 
-def _parse_exif_datetime(value: str) -> Optional[datetime]:
-    """Parse EXIF date strings into a datetime instance."""
-    try:
-        return datetime.strptime(value, "%Y:%m:%d %H:%M:%S")
-    except ValueError:
-        return None
-
-
-def _exif_datetime(path: pathlib.Path) -> Optional[datetime]:
-    """Return the EXIF capture date if available."""
-    try:
-        with Image.open(path) as image:
-            exif = image.getexif()
-            date_original = exif.get(36867)
-            date_general = exif.get(306)
-            date_primary = date_original or date_general
-            if date_primary:
-                return _parse_exif_datetime(str(date_primary))
-    except (OSError, UnidentifiedImageError, ValueError):
-        return None
-    return None
-
-
-def _normalise_timestamp(timestamp: Optional[int]) -> Optional[int]:
-    """Normalize timestamps expressed in seconds or milliseconds."""
+def _normalise_timestamp(timestamp: int | None) -> int | None:
     if timestamp is None:
         return None
     if timestamp > 10**12:
@@ -87,8 +54,8 @@ def _destination_for_file(
     *,
     destination_root: pathlib.Path,
     organize_by_date: bool,
-    last_modified: Optional[int],
-    filename_override: Optional[str] = None,
+    last_modified: int | None,
+    filename_override: str | None = None,
 ) -> pathlib.Path:
     """Resolve the destination path for a file based on EXIF or timestamps."""
     filename = filename_override or (source_path.name if source_path else "unknown")
@@ -102,7 +69,7 @@ def _destination_for_file(
         return destination_root / filename
 
     if source_path:
-        exif_dt = _exif_datetime(source_path)
+        exif_dt = exif_datetime(source_path)
         if exif_dt:
             return destination_root / f"{exif_dt.year:04d}" / f"{exif_dt.month:02d}" / filename
 
@@ -118,7 +85,7 @@ def _destination_for_file(
 def _query_manifest(
     conn: sqlite3.Connection,
     *,
-    extensions: Sequence[str],
+    extensions: tuple[str, ...] | set[str] | list[str],
 ) -> list[sqlite3.Row]:
     """Query Manifest.db for media file entries."""
     conn.row_factory = sqlite3.Row
@@ -132,14 +99,13 @@ def _query_manifest(
 
 
 def _source_path(backup_path: str, file_id: str) -> pathlib.Path:
-    """Build the on-disk path for a hashed backup file."""
     return pathlib.Path(backup_path) / file_id[:2] / file_id
 
 
 def extract_media_files(
     config: Config,
     *,
-    passphrase: Optional[str],
+    passphrase: str | None,
     dry_run: bool,
 ) -> ExtractionSummary:
     """Extract media files from a backup into the configured destination."""
@@ -258,8 +224,7 @@ def extract_media_files(
                                                 logger.warning("Failed to remove zero-byte file: %s", destination_path)
                                 except OSError:
                                     pass
-                            destination_path.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.move(str(temp_path), str(destination_path))
+                            safe_replace_file(temp_path, destination_path, dry_run=dry_run)
                             total_extracted += 1
                             if extraction_log:
                                 extraction_log.write(f"{destination_path}\n")
@@ -288,8 +253,7 @@ def extract_media_files(
                     if dry_run:
                         total_extracted += 1
                     else:
-                        destination_path.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(source_path, destination_path)
+                        safe_copy_file(source_path, destination_path, dry_run=dry_run)
                         total_extracted += 1
                         if extraction_log:
                             extraction_log.write(f"{destination_path}\n")

@@ -7,23 +7,20 @@ Extract photos and videos from local iTunes/Finder iPhone backups, organize by d
 ```bash
 git clone https://github.com/Rs111104/Iphone-Backup-Extractor.git
 cd Iphone-Backup-Extractor
-pip install -r requirements.txt
+pip install .
 ```
 
 ## Configuration
 
-Copy the template and edit your local config:
-
-```bash
-copy config.example.json config.json
-```
+Create a `config.json` in the project root:
 
 ```json
 {
-  "backup_path": "",
-  "destination": "",
+  "backup_path": "C:\\Users\\<you>\\AppData\\Roaming\\Apple Computer\\MobileSync\\Backup",
+  "destination": "D:\\ExtractedPhotos",
   "organize_by_date": true,
-  "skip_existing": true
+  "skip_existing": true,
+  "hash_size": 8
 }
 ```
 
@@ -33,27 +30,31 @@ Leave blank to use platform defaults (auto-detected on Windows and macOS).
 - **destination**: Output folder for extracted files.
 - **organize_by_date**: Store files in `YYYY/MM` folders.
 - **skip_existing**: Skip files that already exist at the destination.
+- **hash_size**: Perceptual hash size for duplicate detection.
+
+If you used `organise_by_date` in older configs, it is migrated to `organize_by_date` automatically.
 
 Passphrases are never stored in config files. Use `--passphrase` to enter one when needed.
 
 ## Usage
 
 ```bash
-python main.py
+ibackupx
 ```
 
 ### Command-line options
 
 ```bash
-python main.py --extract
-python main.py --duplicates
-python main.py --repair
-python main.py --all
-python main.py --status
+ibackupx --extract
+ibackupx --duplicates
+ibackupx --repair
+ibackupx --all
+ibackupx --status
 
-python main.py --backup "C:\\path\\to\\iPhone\\Backup" --dest "D:\\ExtractedPhotos"
-python main.py --passphrase
-python main.py --dry-run --all
+ibackupx --backup "C:\\path\\to\\iPhone\\Backup" --dest "D:\\ExtractedPhotos"
+ibackupx --hash-size 12
+ibackupx --passphrase
+ibackupx --dry-run --all
 ```
 
 ### What each command does

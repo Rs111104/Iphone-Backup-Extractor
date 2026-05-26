@@ -1,24 +1,43 @@
-from pathlib import Path
 from datetime import datetime
-
-import piexif
-from PIL import Image
 
 from ibackupx import deduplicator
 
 
-def test_exif_datetime_none_for_missing(tmp_path):
-    missing = tmp_path / "nope.jpg"
-    assert deduplicator._exif_datetime(missing) is None
+def test_remove_duplicates_keeps_newest(tmp_path, monkeypatch):
+    older = tmp_path / "older.jpg"
+    newer = tmp_path / "newer.jpg"
+    older.write_text("old", encoding="utf-8")
+    newer.write_text("new", encoding="utf-8")
 
+    entries = [
+        deduplicator.FileEntry(
+            path=older,
+            size_bytes=older.stat().st_size,
+            timestamp=datetime(2020, 1, 1, 0, 0, 0),
+            phash="hash",
+        ),
+        deduplicator.FileEntry(
+            path=newer,
+            size_bytes=newer.stat().st_size,
+            timestamp=datetime(2021, 1, 1, 0, 0, 0),
+            phash="hash",
+        ),
+    ]
 
-def test_exif_datetime_reads_jpeg(tmp_path):
-    img_path = tmp_path / "img.jpg"
-    img = Image.new('RGB', (10, 10), color='red')
-    img.save(img_path)
-    # insert EXIF DateTimeOriginal
-    exif_dict = {"Exif": {piexif.ExifIFD.DateTimeOriginal: "2020:01:02 03:04:05"}}
-    exif_bytes = piexif.dump(exif_dict)
-    img.save(img_path, exif=exif_bytes)
-    dt = deduplicator._exif_datetime(img_path)
-    assert isinstance(dt, datetime)
+    removed: list[str] = []
+
+    def fake_send2trash(path: str) -> None:
+        removed.append(path)
+
+    monkeypatch.setattr(deduplicator, "send2trash", fake_send2trash)
+
+    summary = deduplicator.remove_duplicates(
+        {"hash": entries},
+        destination=str(tmp_path),
+        dry_run=False,
+        confirm_delete=True,
+    )
+
+    assert summary.files_removed == 1
+    assert str(older) in removed
+    assert str(newer) not in removed

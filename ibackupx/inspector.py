@@ -1,7 +1,5 @@
 """Backup status inspection and reporting."""
 
-from __future__ import annotations
-
 import logging
 import os
 import pathlib
@@ -9,7 +7,6 @@ import plistlib
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Sequence
 
 from iphone_backup_decrypt import EncryptedBackup
 import click
@@ -18,10 +15,12 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ibackupx import BackupError
+from ibackupx.constants import MEDIA_EXTENSIONS
+from ibackupx.utils import human_bytes
 
 logger = logging.getLogger(__name__)
 
-MEDIA_EXTENSIONS = [".jpg", ".jpeg", ".heic", ".png", ".gif", ".mov", ".mp4", ".aae"]
+_BACKUP_SIZE_CACHE: dict[str, int] = {}
 
 
 @dataclass
@@ -31,22 +30,11 @@ class BackupInfo:
     device_name: str
     device_model: str
     ios_version: str
-    backup_date: Optional[datetime]
+    backup_date: datetime | None
     encrypted: bool
-    total_files: Optional[int]
-    media_files: Optional[int]
+    total_files: int | None
+    media_files: int | None
     backup_size_bytes: int
-
-
-def _human_bytes(value: int) -> str:
-    """Convert bytes to a human-readable string."""
-    units = ["B", "KB", "MB", "GB", "TB"]
-    size = float(value)
-    for unit in units:
-        if size < 1024.0:
-            return f"{size:.1f} {unit}"
-        size /= 1024.0
-    return f"{size:.1f} PB"
 
 
 def _read_plist(path: pathlib.Path) -> dict:
@@ -82,12 +70,6 @@ def find_backup_dirs(backup_path: str) -> str:
     Console().print(table)
     choice = click.prompt("Select backup", type=click.IntRange(1, len(candidates)))
     return str(candidates[choice - 1])
-    try:
-        with path.open("rb") as handle:
-            return plistlib.load(handle)
-    except (OSError, plistlib.InvalidFileException) as exc:
-        logger.warning("Failed to read plist %s: %s", path, exc)
-        return {}
 
 
 def is_encrypted_backup(backup_path: str) -> bool:
@@ -99,7 +81,9 @@ def is_encrypted_backup(backup_path: str) -> bool:
 
 
 def _backup_size_bytes(backup_path: str) -> int:
-    """Compute the total size of files in the backup folder."""
+    cached = _BACKUP_SIZE_CACHE.get(backup_path)
+    if cached is not None:
+        return cached
     total = 0
     for root, _, files in os.walk(backup_path):
         for name in files:
@@ -107,13 +91,14 @@ def _backup_size_bytes(backup_path: str) -> int:
                 total += (pathlib.Path(root) / name).stat().st_size
             except OSError:
                 continue
+    _BACKUP_SIZE_CACHE[backup_path] = total
     return total
 
 
 def _count_manifest_files(
     conn: sqlite3.Connection,
     *,
-    media_extensions: Sequence[str],
+    media_extensions: tuple[str, ...] | set[str] | list[str],
 ) -> tuple[int, int]:
     """Count all files and media files in the Manifest database."""
     conn.row_factory = sqlite3.Row
@@ -130,7 +115,7 @@ def _count_manifest_files(
     return total_files, media_files
 
 
-def inspect_backup(backup_path: str, *, passphrase: Optional[str]) -> BackupInfo:
+def inspect_backup(backup_path: str, *, passphrase: str | None) -> BackupInfo:
     """Inspect backup metadata and return a summary."""
 
     backup_root = pathlib.Path(backup_path)
@@ -147,8 +132,8 @@ def inspect_backup(backup_path: str, *, passphrase: Optional[str]) -> BackupInfo
     backup_date = status_date if isinstance(status_date, datetime) else None
     encrypted = is_encrypted_backup(backup_path)
 
-    total_files: Optional[int] = None
-    media_files: Optional[int] = None
+    total_files: int | None = None
+    media_files: int | None = None
 
     if encrypted:
         if passphrase:
@@ -189,5 +174,5 @@ def render_backup_info(info: BackupInfo) -> Panel:
     table.add_row("Encrypted", "Yes" if info.encrypted else "No")
     table.add_row("Total files", str(info.total_files) if info.total_files is not None else "Locked")
     table.add_row("Photos/videos", str(info.media_files) if info.media_files is not None else "Locked")
-    table.add_row("Backup size", _human_bytes(info.backup_size_bytes))
+    table.add_row("Backup size", human_bytes(info.backup_size_bytes))
     return Panel(table, title="Backup status", expand=False)

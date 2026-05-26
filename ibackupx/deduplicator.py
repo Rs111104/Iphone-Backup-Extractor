@@ -1,28 +1,24 @@
 """Duplicate detection and removal."""
 
-from __future__ import annotations
-
 import logging
 import os
 import pathlib
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional
 
 import imagehash
 from pillow_heif import register_heif_opener
 from PIL import Image, UnidentifiedImageError
-import piexif
 from rich.table import Table
 from send2trash import send2trash
 
 from ibackupx import ExtractionError
+from ibackupx.constants import IMAGE_EXTENSIONS
+from ibackupx.utils import exif_datetime
 
 logger = logging.getLogger(__name__)
 
 register_heif_opener()
-
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".png", ".gif"}
 
 
 @dataclass
@@ -44,32 +40,8 @@ class DuplicateSummary:
     space_freed_bytes: int
 
 
-def _exif_datetime(path: pathlib.Path) -> Optional[datetime]:
-    """Extract the EXIF timestamp from an image if present."""
-    try:
-        with Image.open(path) as image:
-            exif = image.getexif()
-            raw = exif.get(36867) or exif.get(306)
-            if raw:
-                if isinstance(raw, (bytes, bytearray)):
-                    try:
-                        raw = raw.decode("utf-8", errors="ignore")
-                    except Exception:
-                        raw = str(raw)
-                return datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")
-    except (OSError, UnidentifiedImageError, ValueError):
-        return None
-    # Fallback: try piexif on the file itself if pillow didn't return EXIF
-    try:
-        exif_data = piexif.load(str(path))
-        date_bytes = exif_data.get("Exif", {}).get(piexif.ExifIFD.DateTimeOriginal)
-        if date_bytes:
-            if isinstance(date_bytes, bytes):
-                date_bytes = date_bytes.decode("utf-8", errors="ignore")
-            return datetime.strptime(str(date_bytes), "%Y:%m:%d %H:%M:%S")
-    except Exception:
-        return None
-    return None
+def _exif_datetime(path: pathlib.Path) -> datetime | None:
+    return exif_datetime(path)
 
 
 def _file_timestamp(path: pathlib.Path) -> datetime:
@@ -83,25 +55,25 @@ def _file_timestamp(path: pathlib.Path) -> datetime:
         raise ExtractionError(f"Failed to read timestamp for {path}") from exc
 
 
-def _hash_image(path: pathlib.Path) -> Optional[str]:
-    """Compute a perceptual hash for an image file."""
+def _hash_image(path: pathlib.Path, *, hash_size: int) -> str | None:
     try:
         with Image.open(path) as image:
-            return str(imagehash.phash(image, hash_size=8))
+            return str(imagehash.phash(image, hash_size=hash_size))
     except (OSError, UnidentifiedImageError, ValueError) as exc:
         logger.warning("Failed to hash %s: %s", path, exc)
         return None
 
 
-def _iter_image_files(destination: pathlib.Path) -> Iterable[pathlib.Path]:
-    """Yield all image files under the destination tree."""
+def _iter_image_files(destination: pathlib.Path) -> list[pathlib.Path]:
+    matches: list[pathlib.Path] = []
     for root, _, files in os.walk(destination):
         for name in files:
             if pathlib.Path(name).suffix.lower() in IMAGE_EXTENSIONS:
-                yield pathlib.Path(root) / name
+                matches.append(pathlib.Path(root) / name)
+    return matches
 
 
-def build_duplicates_table(groups: Dict[str, List[FileEntry]]) -> Table:
+def build_duplicates_table(groups: dict[str, list[FileEntry]]) -> Table:
     """Build a Rich table for duplicate groups."""
 
     table = Table(title="Duplicate groups")
@@ -123,16 +95,16 @@ def build_duplicates_table(groups: Dict[str, List[FileEntry]]) -> Table:
     return table
 
 
-def find_duplicates(destination: str) -> Dict[str, List[FileEntry]]:
+def find_duplicates(destination: str, *, hash_size: int) -> dict[str, list[FileEntry]]:
     """Find duplicate files grouped by perceptual hash."""
 
     destination_path = pathlib.Path(destination)
     if not destination_path.exists():
         raise ExtractionError(f"Destination does not exist: {destination}")
-    groups: Dict[str, List[FileEntry]] = {}
+    groups: dict[str, list[FileEntry]] = {}
 
     for path in _iter_image_files(destination_path):
-        phash = _hash_image(path)
+        phash = _hash_image(path, hash_size=hash_size)
         if not phash:
             continue
         try:
@@ -151,7 +123,7 @@ def find_duplicates(destination: str) -> Dict[str, List[FileEntry]]:
 
 
 def remove_duplicates(
-    groups: Dict[str, List[FileEntry]],
+    groups: dict[str, list[FileEntry]],
     *,
     destination: str,
     dry_run: bool,
@@ -164,10 +136,10 @@ def remove_duplicates(
 
     removed = 0
     freed = 0
-    report_lines: List[str] = []
+    report_lines: list[str] = []
 
     for entries in groups.values():
-        entries_sorted = sorted(entries, key=lambda item: item.timestamp)
+        entries_sorted = sorted(entries, key=lambda item: item.timestamp, reverse=True)
         keep = entries_sorted[0]
         report_lines.append(f"KEEP: {keep.path}")
         for duplicate in entries_sorted[1:]:

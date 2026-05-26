@@ -19,6 +19,13 @@ def test_is_encrypted_true_for_IsEncrypted(tmp_path):
     assert is_encrypted_backup(str(bp)) is True
 
 
+def test_is_encrypted_false_for_IsEncrypted_false(tmp_path):
+    bp = tmp_path / "backup"
+    bp.mkdir()
+    write_plist(bp / "Manifest.plist", {"IsEncrypted": False})
+    assert is_encrypted_backup(str(bp)) is False
+
+
 def test_is_encrypted_false_for_WasPasscodeSet(tmp_path):
     bp = tmp_path / "backup"
     bp.mkdir()

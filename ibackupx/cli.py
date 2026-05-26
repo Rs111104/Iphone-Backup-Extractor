@@ -1,10 +1,7 @@
 """Click-based command line interface for iBackupX."""
 
-from __future__ import annotations
-
 import logging
 import os
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -63,7 +60,7 @@ def _menu_choice() -> str:
     return click.prompt("Choose an option", type=click.Choice(["1", "2", "3", "4", "5"]), default="5")
 
 
-def _prompt_passphrase() -> Optional[str]:
+def _prompt_passphrase() -> str | None:
     """Prompt the user for a backup passphrase."""
     value = click.prompt("Backup passphrase", hide_input=True, default="")
     value = value.strip()
@@ -79,6 +76,7 @@ def _prompt_passphrase() -> Optional[str]:
 @click.option("--status", "show_status", is_flag=True, help="Show backup status only")
 @click.option("--backup", "backup_path", help="Override backup_path from config.json")
 @click.option("--dest", "destination", help="Override destination from config.json")
+@click.option("--hash-size", "hash_size", type=int, help="Override perceptual hash size")
 @click.option("--passphrase", "prompt_passphrase", is_flag=True, help="Prompt for backup passphrase")
 @click.option("--dry-run", is_flag=True, help="Simulate actions without writing")
 @click.option("--config", "config_path", default="config.json", show_default=True, help="Config file path")
@@ -89,8 +87,9 @@ def main(
     do_repair: bool,
     do_all: bool,
     show_status: bool,
-    backup_path: Optional[str],
-    destination: Optional[str],
+    backup_path: str | None,
+    destination: str | None,
+    hash_size: int | None,
     prompt_passphrase: bool,
     dry_run: bool,
     config_path: str,
@@ -107,6 +106,7 @@ def main(
             {
                 "backup_path": backup_path,
                 "destination": destination,
+                "hash_size": hash_size,
             },
         )
         config.backup_path = find_backup_dirs(config.backup_path)
@@ -171,7 +171,7 @@ def main(
 
     if do_duplicates:
         try:
-            groups = find_duplicates(config.destination)
+            groups = find_duplicates(config.destination, hash_size=config.hash_size)
         except ExtractionError as exc:
             raise click.ClickException(str(exc)) from exc
 
@@ -180,7 +180,9 @@ def main(
         else:
             console.print(build_duplicates_table(groups))
             space_freed = sum(
-                entry.size_bytes for entries in groups.values() for entry in sorted(entries, key=lambda item: item.timestamp)[1:]
+                entry.size_bytes
+                for entries in groups.values()
+                for entry in sorted(entries, key=lambda item: item.timestamp, reverse=True)[1:]
             )
             remove_count = sum(len(entries) - 1 for entries in groups.values())
             console.print(f"Potential removal: {remove_count} files, {space_freed / 1024:.1f} KB")

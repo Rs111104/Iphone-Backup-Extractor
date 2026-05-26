@@ -1,7 +1,5 @@
 """Shared logging setup for iBackupX."""
 
-from __future__ import annotations
-
 import logging
 import pathlib
 

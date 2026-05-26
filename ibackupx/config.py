@@ -1,13 +1,11 @@
 """Configuration loading and validation."""
 
-from __future__ import annotations
-
 import json
 import os
 import pathlib
 import platform
+import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
@@ -22,6 +20,7 @@ class Config:
     destination: str
     organize_by_date: bool
     skip_existing: bool
+    hash_size: int
 
 
 def default_destination() -> str:
@@ -44,8 +43,7 @@ def default_backup_path() -> str:
     return ""
 
 
-def _nearest_existing_parent(path: pathlib.Path) -> Optional[pathlib.Path]:
-    """Return the nearest existing parent for a path, if any."""
+def _nearest_existing_parent(path: pathlib.Path) -> pathlib.Path | None:
     current = path
     while not current.exists() and current.parent != current:
         current = current.parent
@@ -75,16 +73,24 @@ class ConfigModel(BaseModel):
     destination: str = ""
     organize_by_date: bool = True
     skip_existing: bool = True
+    hash_size: int = 8
 
     model_config = {"extra": "ignore"}
 
     @field_validator("backup_path", "destination", mode="before")
     @classmethod
-    def _strip_strings(cls, value: Any) -> str:
-        """Normalize missing or whitespace-only values."""
+    def _strip_strings(cls, value: object) -> str:
         if value is None:
             return ""
         return str(value).strip()
+
+    @field_validator("hash_size", mode="before")
+    @classmethod
+    def _parse_hash_size(cls, value: object) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 8
 
     @model_validator(mode="after")
     def _apply_defaults_and_validate(self) -> "ConfigModel":
@@ -103,9 +109,20 @@ class ConfigModel(BaseModel):
         destination_path = pathlib.Path(self.destination).expanduser()
         _ensure_writable(destination_path)
 
+        if self.hash_size < 4:
+            raise ValueError("hash_size must be >= 4")
+
         self.backup_path = str(backup_path)
         self.destination = str(destination_path)
         return self
+
+
+def _write_migrated_config(config_file: pathlib.Path, data: dict[str, object]) -> None:
+    """Write migrated config back to disk after key upgrades."""
+    try:
+        config_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except OSError:
+        return
 
 
 def load_config(config_path: str) -> Config:
@@ -117,9 +134,18 @@ def load_config(config_path: str) -> Config:
 
     try:
         with config_file.open("r", encoding="utf-8") as handle:
-            raw: Dict[str, Any] = json.load(handle)
+            raw: dict[str, object] = json.load(handle)
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Invalid JSON in config file: {config_path}") from exc
+
+    if "organise_by_date" in raw and "organize_by_date" not in raw:
+        warnings.warn(
+            "'organise_by_date' is deprecated; use 'organize_by_date' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        raw["organize_by_date"] = raw.pop("organise_by_date")
+        _write_migrated_config(config_file, raw)
 
     try:
         model = ConfigModel.model_validate(raw)
@@ -131,10 +157,11 @@ def load_config(config_path: str) -> Config:
         destination=model.destination,
         organize_by_date=model.organize_by_date,
         skip_existing=model.skip_existing,
+        hash_size=model.hash_size,
     )
 
 
-def apply_overrides(config: Config, overrides: Dict[str, Any]) -> Config:
+def apply_overrides(config: Config, overrides: dict[str, object]) -> Config:
     """Apply CLI overrides and re-validate using the pydantic model."""
 
     data = {
@@ -142,6 +169,7 @@ def apply_overrides(config: Config, overrides: Dict[str, Any]) -> Config:
         "destination": overrides.get("destination") or config.destination,
         "organize_by_date": overrides.get("organize_by_date", config.organize_by_date),
         "skip_existing": overrides.get("skip_existing", config.skip_existing),
+        "hash_size": overrides.get("hash_size") if overrides.get("hash_size") is not None else config.hash_size,
     }
 
     try:
@@ -154,4 +182,5 @@ def apply_overrides(config: Config, overrides: Dict[str, Any]) -> Config:
         destination=model.destination,
         organize_by_date=model.organize_by_date,
         skip_existing=model.skip_existing,
+        hash_size=model.hash_size,
     )

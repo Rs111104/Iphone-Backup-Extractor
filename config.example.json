@@ -1,8 +1,0 @@
-{
-  "_comment": "Copy this file to config.json and fill in your values",
-  "_migration_note": "organise_by_date was renamed to organize_by_date.",
-  "backup_path": "",
-  "destination": "",
-  "organize_by_date": true,
-  "skip_existing": true
-}
