@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ibackupx"
 version = "1.0.0"
-requires-python = ">=3.9,<3.12"
+requires-python = ">=3.9"
 dependencies = [
-	"iphone-backup-decrypt>=1.3.6",
+	"iphone-backup-decrypt>=0.9.0",
 	"Pillow>=10.1.0",
 	"pillow-heif>=0.13.0",
 	"piexif>=1.1.3",

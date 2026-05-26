@@ -212,9 +212,23 @@ def extract_media_files(
                             filename_override=filename,
                         )
                         if config.skip_existing and destination_path.exists():
-                            total_skipped += 1
-                        else:
-                            total_extracted += 1
+                            try:
+                                if destination_path.stat().st_size > 0:
+                                    logger.debug("Skipping existing file (non-zero size): %s", destination_path)
+                                    total_skipped += 1
+                                    continue
+                                else:
+                                    # zero-byte file: remove and treat as missing (do not delete in dry-run)
+                                    logger.debug("Found zero-byte file, will re-extract: %s", destination_path)
+                                    if not dry_run:
+                                        try:
+                                            destination_path.unlink()
+                                        except OSError:
+                                            logger.warning("Failed to remove zero-byte file: %s", destination_path)
+                            except OSError:
+                                # Couldn't stat the file, attempt extraction
+                                pass
+                        total_extracted += 1
                     else:
                         with tempfile.TemporaryDirectory() as temp_dir:
                             temp_path = pathlib.Path(temp_dir) / filename
@@ -230,13 +244,25 @@ def extract_media_files(
                                 last_modified=last_modified,
                             )
                             if config.skip_existing and destination_path.exists():
-                                total_skipped += 1
-                            else:
-                                destination_path.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.move(str(temp_path), str(destination_path))
-                                total_extracted += 1
-                                if extraction_log:
-                                    extraction_log.write(f"{destination_path}\n")
+                                try:
+                                    if destination_path.stat().st_size > 0:
+                                        logger.debug("Skipping existing file (non-zero size): %s", destination_path)
+                                        total_skipped += 1
+                                        continue
+                                    else:
+                                        # zero-byte file: remove and proceed to move
+                                        if not dry_run:
+                                            try:
+                                                destination_path.unlink()
+                                            except OSError:
+                                                logger.warning("Failed to remove zero-byte file: %s", destination_path)
+                                except OSError:
+                                    pass
+                            destination_path.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(temp_path), str(destination_path))
+                            total_extracted += 1
+                            if extraction_log:
+                                extraction_log.write(f"{destination_path}\n")
                 else:
                     source_path = _source_path(backup_path, file_id)
                     destination_path = _destination_for_file(
@@ -246,8 +272,20 @@ def extract_media_files(
                         last_modified=last_modified,
                     )
                     if config.skip_existing and destination_path.exists():
-                        total_skipped += 1
-                    elif dry_run:
+                        try:
+                            if destination_path.stat().st_size > 0:
+                                logger.debug("Skipping existing file (non-zero size): %s", destination_path)
+                                total_skipped += 1
+                                continue
+                            else:
+                                logger.debug("Found zero-byte file, will re-extract: %s", destination_path)
+                                try:
+                                    destination_path.unlink()
+                                except OSError:
+                                    logger.warning("Failed to remove zero-byte file: %s", destination_path)
+                        except OSError:
+                            pass
+                    if dry_run:
                         total_extracted += 1
                     else:
                         destination_path.parent.mkdir(parents=True, exist_ok=True)

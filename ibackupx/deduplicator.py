@@ -12,6 +12,7 @@ from typing import Dict, Iterable, List, Optional
 import imagehash
 from pillow_heif import register_heif_opener
 from PIL import Image, UnidentifiedImageError
+import piexif
 from rich.table import Table
 from send2trash import send2trash
 
@@ -50,8 +51,23 @@ def _exif_datetime(path: pathlib.Path) -> Optional[datetime]:
             exif = image.getexif()
             raw = exif.get(36867) or exif.get(306)
             if raw:
+                if isinstance(raw, (bytes, bytearray)):
+                    try:
+                        raw = raw.decode("utf-8", errors="ignore")
+                    except Exception:
+                        raw = str(raw)
                 return datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")
     except (OSError, UnidentifiedImageError, ValueError):
+        return None
+    # Fallback: try piexif on the file itself if pillow didn't return EXIF
+    try:
+        exif_data = piexif.load(str(path))
+        date_bytes = exif_data.get("Exif", {}).get(piexif.ExifIFD.DateTimeOriginal)
+        if date_bytes:
+            if isinstance(date_bytes, bytes):
+                date_bytes = date_bytes.decode("utf-8", errors="ignore")
+            return datetime.strptime(str(date_bytes), "%Y:%m:%d %H:%M:%S")
+    except Exception:
         return None
     return None
 

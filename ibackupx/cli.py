@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 import click
@@ -69,6 +70,7 @@ def _prompt_passphrase() -> Optional[str]:
     return value or None
 
 
+@click.version_option(version="1.0.0", prog_name="iBackupX")
 @click.command()
 @click.option("--extract", "do_extract", is_flag=True, help="Extract photos and videos")
 @click.option("--duplicates", "do_duplicates", is_flag=True, help="Find and remove duplicates")
@@ -114,7 +116,13 @@ def main(
     setup_logging(config.destination, verbose=verbose, enable_file=not dry_run)
 
     encrypted = is_encrypted_backup(config.backup_path)
-    passphrase = _prompt_passphrase() if prompt_passphrase else None
+    # Passphrase via environment variable for automation
+    passphrase = None
+    env_pass = os.environ.get("IBACKUPX_PASSPHRASE")
+    if env_pass:
+        passphrase = env_pass
+    elif prompt_passphrase:
+        passphrase = _prompt_passphrase()
 
     if show_status:
         try:

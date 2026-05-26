@@ -53,6 +53,12 @@ def _read_plist(path: pathlib.Path) -> dict:
     """Read a plist file if it exists, returning an empty dict on failure."""
     if not path.exists():
         return {}
+    try:
+        with path.open("rb") as handle:
+            return plistlib.load(handle)
+    except (OSError, plistlib.InvalidFileException) as exc:
+        logger.warning("Failed to read plist %s: %s", path, exc)
+        return {}
 
 
 def find_backup_dirs(backup_path: str) -> str:
