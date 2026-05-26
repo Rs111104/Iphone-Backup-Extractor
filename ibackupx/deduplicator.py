@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 register_heif_opener()
 
+_DEFAULT_HASH_SIZE = 8
+
 
 @dataclass
 class FileEntry:
@@ -55,10 +57,10 @@ def _file_timestamp(path: pathlib.Path) -> datetime:
         raise ExtractionError(f"Failed to read timestamp for {path}") from exc
 
 
-def _hash_image(path: pathlib.Path, *, hash_size: int) -> str | None:
+def _hash_image(path: pathlib.Path) -> str | None:
     try:
         with Image.open(path) as image:
-            return str(imagehash.phash(image, hash_size=hash_size))
+            return str(imagehash.phash(image, hash_size=_DEFAULT_HASH_SIZE))
     except (OSError, UnidentifiedImageError, ValueError) as exc:
         logger.warning("Failed to hash %s: %s", path, exc)
         return None
@@ -95,7 +97,7 @@ def build_duplicates_table(groups: dict[str, list[FileEntry]]) -> Table:
     return table
 
 
-def find_duplicates(destination: str, *, hash_size: int) -> dict[str, list[FileEntry]]:
+def find_duplicates(destination: str) -> dict[str, list[FileEntry]]:
     """Find duplicate files grouped by perceptual hash."""
 
     destination_path = pathlib.Path(destination)
@@ -104,7 +106,7 @@ def find_duplicates(destination: str, *, hash_size: int) -> dict[str, list[FileE
     groups: dict[str, list[FileEntry]] = {}
 
     for path in _iter_image_files(destination_path):
-        phash = _hash_image(path, hash_size=hash_size)
+        phash = _hash_image(path)
         if not phash:
             continue
         try:

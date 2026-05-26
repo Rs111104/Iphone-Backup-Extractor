@@ -16,7 +16,7 @@ from rich.table import Table
 
 from ibackupx import BackupError
 from ibackupx.constants import MEDIA_EXTENSIONS
-from ibackupx.utils import human_bytes
+from ibackupx.utils import humanize_bytes, passphrase_text
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ def _count_manifest_files(
     return total_files, media_files
 
 
-def inspect_backup(backup_path: str, *, passphrase: str | None) -> BackupInfo:
+def inspect_backup(backup_path: str, *, passphrase: bytearray | None) -> BackupInfo:
     """Inspect backup metadata and return a summary."""
 
     backup_root = pathlib.Path(backup_path)
@@ -137,7 +137,8 @@ def inspect_backup(backup_path: str, *, passphrase: str | None) -> BackupInfo:
 
     if encrypted:
         if passphrase:
-            backup = EncryptedBackup(backup_directory=backup_path, passphrase=passphrase)
+            passphrase_value = passphrase_text(passphrase)
+            backup = EncryptedBackup(backup_directory=backup_path, passphrase=passphrase_value)
             with backup.manifest_db_cursor() as cur:
                 total_files, media_files = _count_manifest_files(cur.connection, media_extensions=MEDIA_EXTENSIONS)
     else:
@@ -174,5 +175,5 @@ def render_backup_info(info: BackupInfo) -> Panel:
     table.add_row("Encrypted", "Yes" if info.encrypted else "No")
     table.add_row("Total files", str(info.total_files) if info.total_files is not None else "Locked")
     table.add_row("Photos/videos", str(info.media_files) if info.media_files is not None else "Locked")
-    table.add_row("Backup size", human_bytes(info.backup_size_bytes))
+    table.add_row("Backup size", humanize_bytes(info.backup_size_bytes))
     return Panel(table, title="Backup status", expand=False)

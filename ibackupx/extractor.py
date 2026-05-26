@@ -15,7 +15,7 @@ from ibackupx import ExtractionError
 from ibackupx.config import Config
 from ibackupx.constants import MEDIA_EXTENSIONS
 from ibackupx.inspector import is_encrypted_backup
-from ibackupx.utils import exif_datetime, safe_copy_file, safe_replace_file
+from ibackupx.utils import exif_datetime, passphrase_text, safe_copy_file, safe_replace_file
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ def _source_path(backup_path: str, file_id: str) -> pathlib.Path:
 def extract_media_files(
     config: Config,
     *,
-    passphrase: str | None,
+    passphrase: bytearray | None,
     dry_run: bool,
 ) -> ExtractionSummary:
     """Extract media files from a backup into the configured destination."""
@@ -119,7 +119,8 @@ def extract_media_files(
 
     rows: list[sqlite3.Row]
     if encrypted:
-        backup = EncryptedBackup(backup_directory=backup_path, passphrase=passphrase)
+        passphrase_value = passphrase_text(passphrase)
+        backup = EncryptedBackup(backup_directory=backup_path, passphrase=passphrase_value)
         with backup.manifest_db_cursor() as cur:
             rows = _query_manifest(cur.connection, extensions=MEDIA_EXTENSIONS)
     else:
@@ -157,57 +158,26 @@ def extract_media_files(
         TimeRemainingColumn(),
     )
 
-    with progress:
-        task_id = progress.add_task("Extracting", total=total_found)
-        for row in rows:
-            file_id = row["fileID"]
-            relative_path = row["relativePath"]
-            domain = row["domain"]
-            last_modified = _extract_last_modified(row["file"])
-            filename = pathlib.Path(relative_path).name
-            progress.update(task_id, description=filename)
+    try:
+        with progress:
+            task_id = progress.add_task("Extracting", total=total_found)
+            for row in rows:
+                file_id = row["fileID"]
+                relative_path = row["relativePath"]
+                domain = row["domain"]
+                last_modified = _extract_last_modified(row["file"])
+                filename = pathlib.Path(relative_path).name
+                progress.update(task_id, description=filename)
 
-            try:
-                if encrypted:
-                    if dry_run:
-                        destination_path = _destination_for_file(
-                            None,
-                            destination_root=destination_root,
-                            organize_by_date=config.organize_by_date,
-                            last_modified=last_modified,
-                            filename_override=filename,
-                        )
-                        if config.skip_existing and destination_path.exists():
-                            try:
-                                if destination_path.stat().st_size > 0:
-                                    logger.debug("Skipping existing file (non-zero size): %s", destination_path)
-                                    total_skipped += 1
-                                    continue
-                                else:
-                                    # zero-byte file: remove and treat as missing (do not delete in dry-run)
-                                    logger.debug("Found zero-byte file, will re-extract: %s", destination_path)
-                                    if not dry_run:
-                                        try:
-                                            destination_path.unlink()
-                                        except OSError:
-                                            logger.warning("Failed to remove zero-byte file: %s", destination_path)
-                            except OSError:
-                                # Couldn't stat the file, attempt extraction
-                                pass
-                        total_extracted += 1
-                    else:
-                        with tempfile.TemporaryDirectory() as temp_dir:
-                            temp_path = pathlib.Path(temp_dir) / filename
-                            backup.extract_file(
-                                relative_path=relative_path,
-                                domain_like=domain,
-                                output_filename=str(temp_path),
-                            )
+                try:
+                    if encrypted:
+                        if dry_run:
                             destination_path = _destination_for_file(
-                                temp_path,
+                                None,
                                 destination_root=destination_root,
                                 organize_by_date=config.organize_by_date,
                                 last_modified=last_modified,
+                                filename_override=filename,
                             )
                             if config.skip_existing and destination_path.exists():
                                 try:
@@ -216,52 +186,87 @@ def extract_media_files(
                                         total_skipped += 1
                                         continue
                                     else:
-                                        # zero-byte file: remove and proceed to move
+                                        # zero-byte file: remove and treat as missing (do not delete in dry-run)
+                                        logger.debug("Found zero-byte file, will re-extract: %s", destination_path)
                                         if not dry_run:
                                             try:
                                                 destination_path.unlink()
                                             except OSError:
                                                 logger.warning("Failed to remove zero-byte file: %s", destination_path)
                                 except OSError:
+                                    # Couldn't stat the file, attempt extraction
                                     pass
-                            safe_replace_file(temp_path, destination_path, dry_run=dry_run)
+                            total_extracted += 1
+                        else:
+                            with tempfile.TemporaryDirectory() as temp_dir:
+                                temp_path = pathlib.Path(temp_dir) / filename
+                                backup.extract_file(
+                                    relative_path=relative_path,
+                                    domain_like=domain,
+                                    output_filename=str(temp_path),
+                                )
+                                destination_path = _destination_for_file(
+                                    temp_path,
+                                    destination_root=destination_root,
+                                    organize_by_date=config.organize_by_date,
+                                    last_modified=last_modified,
+                                )
+                                if config.skip_existing and destination_path.exists():
+                                    try:
+                                        if destination_path.stat().st_size > 0:
+                                            logger.debug("Skipping existing file (non-zero size): %s", destination_path)
+                                            total_skipped += 1
+                                            continue
+                                        else:
+                                            # zero-byte file: remove and proceed to move
+                                            if not dry_run:
+                                                try:
+                                                    destination_path.unlink()
+                                                except OSError:
+                                                    logger.warning("Failed to remove zero-byte file: %s", destination_path)
+                                    except OSError:
+                                        pass
+                                safe_replace_file(temp_path, destination_path, dry_run=dry_run)
+                                total_extracted += 1
+                                if extraction_log:
+                                    extraction_log.write(f"{destination_path}\n")
+                    else:
+                        source_path = _source_path(backup_path, file_id)
+                        destination_path = _destination_for_file(
+                            source_path,
+                            destination_root=destination_root,
+                            organize_by_date=config.organize_by_date,
+                            last_modified=last_modified,
+                        )
+                        if config.skip_existing and destination_path.exists():
+                            try:
+                                if destination_path.stat().st_size > 0:
+                                    logger.debug("Skipping existing file (non-zero size): %s", destination_path)
+                                    total_skipped += 1
+                                    continue
+                                else:
+                                    logger.debug("Found zero-byte file, will re-extract: %s", destination_path)
+                                    try:
+                                        destination_path.unlink()
+                                    except OSError:
+                                        logger.warning("Failed to remove zero-byte file: %s", destination_path)
+                            except OSError:
+                                pass
+                        if dry_run:
+                            total_extracted += 1
+                        else:
+                            safe_copy_file(source_path, destination_path, dry_run=dry_run)
                             total_extracted += 1
                             if extraction_log:
                                 extraction_log.write(f"{destination_path}\n")
-                else:
-                    source_path = _source_path(backup_path, file_id)
-                    destination_path = _destination_for_file(
-                        source_path,
-                        destination_root=destination_root,
-                        organize_by_date=config.organize_by_date,
-                        last_modified=last_modified,
-                    )
-                    if config.skip_existing and destination_path.exists():
-                        try:
-                            if destination_path.stat().st_size > 0:
-                                logger.debug("Skipping existing file (non-zero size): %s", destination_path)
-                                total_skipped += 1
-                                continue
-                            else:
-                                logger.debug("Found zero-byte file, will re-extract: %s", destination_path)
-                                try:
-                                    destination_path.unlink()
-                                except OSError:
-                                    logger.warning("Failed to remove zero-byte file: %s", destination_path)
-                        except OSError:
-                            pass
-                    if dry_run:
-                        total_extracted += 1
-                    else:
-                        safe_copy_file(source_path, destination_path, dry_run=dry_run)
-                        total_extracted += 1
-                        if extraction_log:
-                            extraction_log.write(f"{destination_path}\n")
-            except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
-                total_failed += 1
-                logger.error("Failed to extract %s: %s", relative_path, exc)
+                except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
+                    total_failed += 1
+                    logger.error("Failed to extract %s: %s", relative_path, exc)
 
-            progress.advance(task_id)
+                progress.advance(task_id)
+    finally:
+        if extraction_log:
+            extraction_log.close()
 
     if extraction_log:
         extraction_log.close()

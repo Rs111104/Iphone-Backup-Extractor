@@ -7,11 +7,11 @@ from ibackupx import ConfigError
 from ibackupx.config import Config, apply_overrides, load_config
 
 
-def write_config(path: Path, data: dict):
+def write_config(path: Path, data: dict[str, object]) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def base_config(tmp_path: Path) -> dict:
+def base_config(tmp_path: Path) -> dict[str, object]:
     backup = tmp_path / "backup"
     backup.mkdir()
     dest = tmp_path / "dest"
@@ -21,19 +21,17 @@ def base_config(tmp_path: Path) -> dict:
         "destination": str(dest),
         "organize_by_date": True,
         "skip_existing": True,
-        "hash_size": 8,
     }
 
 
-def test_valid_config_loads(tmp_path):
+def test_valid_config_loads(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.json"
     write_config(cfg_path, base_config(tmp_path))
     cfg = load_config(str(cfg_path))
     assert isinstance(cfg, Config)
-    assert cfg.hash_size == 8
 
 
-def test_missing_backup_path_raises_ConfigError(tmp_path):
+def test_missing_backup_path_raises_ConfigError(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.json"
     write_config(
         cfg_path,
@@ -42,24 +40,22 @@ def test_missing_backup_path_raises_ConfigError(tmp_path):
             "destination": str(tmp_path / "out"),
             "organize_by_date": True,
             "skip_existing": True,
-            "hash_size": 8,
         },
     )
     with pytest.raises(ConfigError):
         load_config(str(cfg_path))
 
 
-def test_apply_overrides_with_none_does_not_overwrite(tmp_path):
+def test_apply_overrides_with_none_does_not_overwrite(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.json"
     write_config(cfg_path, base_config(tmp_path))
     cfg = load_config(str(cfg_path))
-    new = apply_overrides(cfg, {"backup_path": None, "destination": None, "hash_size": None})
+    new = apply_overrides(cfg, {"backup_path": None, "destination": None})
     assert new.backup_path == cfg.backup_path
     assert new.destination == cfg.destination
-    assert new.hash_size == cfg.hash_size
 
 
-def test_organise_by_date_migrates(tmp_path):
+def test_organise_by_date_migrates(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.json"
     data = base_config(tmp_path)
     data.pop("organize_by_date")

@@ -20,7 +20,6 @@ class Config:
     destination: str
     organize_by_date: bool
     skip_existing: bool
-    hash_size: int
 
 
 def default_destination() -> str:
@@ -73,7 +72,6 @@ class ConfigModel(BaseModel):
     destination: str = ""
     organize_by_date: bool = True
     skip_existing: bool = True
-    hash_size: int = 8
 
     model_config = {"extra": "ignore"}
 
@@ -83,14 +81,6 @@ class ConfigModel(BaseModel):
         if value is None:
             return ""
         return str(value).strip()
-
-    @field_validator("hash_size", mode="before")
-    @classmethod
-    def _parse_hash_size(cls, value: object) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 8
 
     @model_validator(mode="after")
     def _apply_defaults_and_validate(self) -> "ConfigModel":
@@ -108,9 +98,6 @@ class ConfigModel(BaseModel):
 
         destination_path = pathlib.Path(self.destination).expanduser()
         _ensure_writable(destination_path)
-
-        if self.hash_size < 4:
-            raise ValueError("hash_size must be >= 4")
 
         self.backup_path = str(backup_path)
         self.destination = str(destination_path)
@@ -157,7 +144,6 @@ def load_config(config_path: str) -> Config:
         destination=model.destination,
         organize_by_date=model.organize_by_date,
         skip_existing=model.skip_existing,
-        hash_size=model.hash_size,
     )
 
 
@@ -169,7 +155,6 @@ def apply_overrides(config: Config, overrides: dict[str, object]) -> Config:
         "destination": overrides.get("destination") or config.destination,
         "organize_by_date": overrides.get("organize_by_date", config.organize_by_date),
         "skip_existing": overrides.get("skip_existing", config.skip_existing),
-        "hash_size": overrides.get("hash_size") if overrides.get("hash_size") is not None else config.hash_size,
     }
 
     try:
@@ -182,5 +167,4 @@ def apply_overrides(config: Config, overrides: dict[str, object]) -> Config:
         destination=model.destination,
         organize_by_date=model.organize_by_date,
         skip_existing=model.skip_existing,
-        hash_size=model.hash_size,
     )

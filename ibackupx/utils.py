@@ -24,7 +24,7 @@ def exif_datetime(path: pathlib.Path) -> datetime | None:
     return None
 
 
-def human_bytes(value: int) -> str:
+def humanize_bytes(value: int) -> str:
     units = ["B", "KB", "MB", "GB", "TB"]
     size = float(value)
     for unit in units:
@@ -32,6 +32,19 @@ def human_bytes(value: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024.0
     return f"{size:.1f} PB"
+
+
+def passphrase_text(passphrase: bytearray | None) -> str | None:
+    if passphrase is None:
+        return None
+    return passphrase.decode("utf-8")
+
+
+def wipe_passphrase(passphrase: bytearray | None) -> None:
+    if passphrase is None:
+        return
+    for idx in range(len(passphrase)):
+        passphrase[idx] = 0
 
 
 def _backup_copy(path: pathlib.Path) -> pathlib.Path | None:
