@@ -50,7 +50,7 @@ def _normalise_timestamp(timestamp: int | None) -> int | None:
 
 
 def _destination_for_file(
-    source_path: Optional[pathlib.Path],
+    source_path: pathlib.Path | None,
     *,
     destination_root: pathlib.Path,
     organize_by_date: bool,
